@@ -16,8 +16,16 @@ def main():
     with open(filename) as file:
         file_contents = file.read()
 
-    if file_contents:
-        raise NotImplementedError("Scanner not implemented")
+    token_types = {
+        "(": "LEFT_PAREN",
+        ")": "RIGHT_PAREN",
+    }
+
+    for character in file_contents:
+        if character in token_types:
+            print(f"{token_types[character]} {character} null")
+        elif character not in " \r\t\n":
+            raise NotImplementedError("Scanner not implemented")
 
     print("EOF  null")
 
