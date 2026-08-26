@@ -17,6 +17,12 @@ def main():
         file_contents = file.read()
 
     token_types = {
+        ",": "COMMA",
+        ".": "DOT",
+        "-": "MINUS",
+        "+": "PLUS",
+        ";": "SEMICOLON",
+        "*": "STAR",
         "(": "LEFT_PAREN",
         ")": "RIGHT_PAREN",
         "{": "LEFT_BRACE",
