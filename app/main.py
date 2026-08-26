@@ -29,16 +29,28 @@ def main():
         "}": "RIGHT_BRACE",
     }
     had_errors = False
+    i = 0
 
-    for character in file_contents:
+    while i < len(file_contents):
+        character = file_contents[i]
+
         if character in token_types:
             print(f"{token_types[character]} {character} null")
+        elif character == "=":
+            if i + 1 < len(file_contents) and file_contents[i + 1] == "=":
+                print("EQUAL_EQUAL == null")
+                i += 2
+                continue
+            else:
+                print("EQUAL = null")
         elif character not in " \r\t\n":
             print(
                 f"[line 1] Error: Unexpected character: {character}",
                 file=sys.stderr,
             )
             had_errors = True
+
+        i += 1
 
     print("EOF  null")
 
