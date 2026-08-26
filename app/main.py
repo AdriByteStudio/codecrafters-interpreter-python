@@ -19,6 +19,8 @@ def main():
     token_types = {
         "(": "LEFT_PAREN",
         ")": "RIGHT_PAREN",
+        "{": "LEFT_BRACE",
+        "}": "RIGHT_BRACE",
     }
 
     for character in file_contents:
