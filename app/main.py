@@ -973,7 +973,11 @@ class Interpreter:
             self.environment = previous
 
     def visit_if_stmt(self, stmt):
-        raise RuntimeError(None, "If statements not supported yet.")
+        if self.is_truthy(self.evaluate(stmt.condition)):
+            self.execute(stmt.then_branch)
+        elif stmt.else_branch is not None:
+            self.execute(stmt.else_branch)
+        return None
 
     def visit_while_stmt(self, stmt):
         raise RuntimeError(None, "While statements not supported yet.")
