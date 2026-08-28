@@ -924,6 +924,18 @@ class Environment:
 
         raise RuntimeError(name, f"Undefined variable '{name.lexeme}'.")
 
+    def ancestor(self, distance):
+        environment = self
+        for _ in range(distance):
+            environment = environment.enclosing
+        return environment
+
+    def get_at(self, distance, name):
+        return self.ancestor(distance).values[name]
+
+    def assign_at(self, distance, name, value):
+        self.ancestor(distance).values[name.lexeme] = value
+
 
 class LoxCallable:
     def arity(self):
@@ -979,7 +991,18 @@ class Interpreter:
         self.globals = Environment()
         self.globals.define("clock", Clock())
         self.environment = self.globals
+        self.locals = {}
         self.had_runtime_error = False
+
+    def resolve(self, expr, depth):
+        self.locals[expr] = depth
+
+    def look_up_variable(self, name, expr):
+        distance = self.locals.get(expr)
+        if distance is not None:
+            return self.environment.get_at(distance, name.lexeme)
+        else:
+            return self.globals.get(name)
 
     def interpret(self, statements):
         for statement in statements:
@@ -1112,11 +1135,17 @@ class Interpreter:
         return None
 
     def visit_variable_expr(self, expr):
-        return self.environment.get(expr.name)
+        return self.look_up_variable(expr.name, expr)
 
     def visit_assign_expr(self, expr):
         value = self.evaluate(expr.value)
-        self.environment.assign(expr.name, value)
+
+        distance = self.locals.get(expr)
+        if distance is not None:
+            self.environment.assign_at(distance, expr.name, value)
+        else:
+            self.globals.assign(expr.name, value)
+
         return value
 
     def visit_logical_expr(self, expr):
@@ -1202,6 +1231,242 @@ class Interpreter:
         return str(object)
 
 
+class Resolver:
+    def __init__(self, interpreter):
+        self.interpreter = interpreter
+        self.scopes = []
+        self.current_function = "NONE"
+        self.current_class = "NONE"
+
+    def resolve(self, statements):
+        for statement in statements:
+            self.resolve_stmt(statement)
+
+    def resolve_stmt(self, stmt):
+        stmt.accept(self)
+
+    def resolve_expr(self, expr):
+        expr.accept(self)
+
+    def visit_block_stmt(self, stmt):
+        self.begin_scope()
+        self.resolve(stmt.statements)
+        self.end_scope()
+        return None
+
+    def visit_var_stmt(self, stmt):
+        self.declare(stmt.name)
+        if stmt.initializer is not None:
+            self.resolve_expr(stmt.initializer)
+        self.define(stmt.name)
+        return None
+
+    def visit_function_stmt(self, stmt):
+        self.declare(stmt.name)
+        self.define(stmt.name)
+
+        self.resolve_function(stmt, "FUNCTION")
+        return None
+
+    def visit_class_stmt(self, stmt):
+        enclosing_class = self.current_class
+        self.current_class = "SUBCLASS" if stmt.superclass is not None else "CLASS"
+
+        self.declare(stmt.name)
+        self.define(stmt.name)
+
+        if (
+            stmt.superclass is not None
+            and stmt.name.lexeme == stmt.superclass.name.lexeme
+        ):
+            self.report_error(
+                stmt.superclass.name, "A class can't inherit from itself."
+            )
+
+        if stmt.superclass is not None:
+            self.resolve_expr(stmt.superclass)
+
+        if stmt.superclass is not None:
+            self.begin_scope()
+            self.scopes[-1]["super"] = True
+
+        self.begin_scope()
+        self.scopes[-1]["this"] = True
+
+        for method in stmt.methods:
+            declaration = "INITIALIZER" if method.name.lexeme == "init" else "METHOD"
+            self.resolve_function(method, declaration)
+
+        self.end_scope()
+
+        if stmt.superclass is not None:
+            self.end_scope()
+
+        self.current_class = enclosing_class
+        return None
+
+    def visit_expression_stmt(self, stmt):
+        self.resolve_expr(stmt.expression)
+        return None
+
+    def visit_if_stmt(self, stmt):
+        self.resolve_expr(stmt.condition)
+        self.resolve_stmt(stmt.then_branch)
+        if stmt.else_branch is not None:
+            self.resolve_stmt(stmt.else_branch)
+        return None
+
+    def visit_print_stmt(self, stmt):
+        self.resolve_expr(stmt.expression)
+        return None
+
+    def visit_return_stmt(self, stmt):
+        if self.current_function == "NONE":
+            self.report_error(stmt.keyword, "Can't return from top-level code.")
+
+        if self.current_function == "INITIALIZER" and stmt.value is not None:
+            self.report_error(
+                stmt.keyword, "Can't return a value from an initializer."
+            )
+
+        if stmt.value is not None:
+            self.resolve_expr(stmt.value)
+
+        return None
+
+    def visit_while_stmt(self, stmt):
+        self.resolve_expr(stmt.condition)
+        self.resolve_stmt(stmt.body)
+        return None
+
+    def visit_variable_expr(self, expr):
+        if (
+            len(self.scopes) != 0
+            and self.scopes[-1].get(expr.name.lexeme) is False
+        ):
+            self.report_error(
+                expr.name, "Can't read local variable in its own initializer."
+            )
+
+        self.resolve_local(expr, expr.name)
+        return None
+
+    def visit_this_expr(self, expr):
+        if self.current_class == "NONE":
+            self.report_error(expr.keyword, "Can't use 'this' outside of a class.")
+            return None
+
+        self.resolve_local(expr, expr.keyword)
+        return None
+
+    def visit_super_expr(self, expr):
+        if self.current_class == "NONE":
+            self.report_error(expr.keyword, "Can't use 'super' outside of a class.")
+        elif self.current_class != "SUBCLASS":
+            self.report_error(
+                expr.keyword, "Can't use 'super' in a class with no superclass."
+            )
+
+        self.resolve_local(expr, expr.keyword)
+        return None
+
+    def visit_get_expr(self, expr):
+        self.resolve_expr(expr.object)
+        return None
+
+    def visit_set_expr(self, expr):
+        self.resolve_expr(expr.value)
+        self.resolve_expr(expr.object)
+        return None
+
+    def visit_assign_expr(self, expr):
+        self.resolve_expr(expr.value)
+        self.resolve_local(expr, expr.name)
+        return None
+
+    def visit_binary_expr(self, expr):
+        self.resolve_expr(expr.left)
+        self.resolve_expr(expr.right)
+        return None
+
+    def visit_call_expr(self, expr):
+        self.resolve_expr(expr.callee)
+
+        for argument in expr.args:
+            self.resolve_expr(argument)
+
+        return None
+
+    def visit_grouping_expr(self, expr):
+        self.resolve_expr(expr.expression)
+        return None
+
+    def visit_literal_expr(self, expr):
+        return None
+
+    def visit_logical_expr(self, expr):
+        self.resolve_expr(expr.left)
+        self.resolve_expr(expr.right)
+        return None
+
+    def visit_unary_expr(self, expr):
+        self.resolve_expr(expr.right)
+        return None
+
+    def resolve_function(self, fn, type):
+        enclosing_function = self.current_function
+        self.current_function = type
+
+        self.begin_scope()
+        for param in fn.params:
+            self.declare(param)
+            self.define(param)
+        self.resolve(fn.body)
+        self.end_scope()
+        self.current_function = enclosing_function
+
+    def begin_scope(self):
+        self.scopes.append({})
+
+    def end_scope(self):
+        self.scopes.pop()
+
+    def declare(self, name):
+        if len(self.scopes) == 0:
+            return
+
+        scope = self.scopes[-1]
+        if name.lexeme in scope:
+            self.report_error(
+                name, "Already a variable with this name in this scope."
+            )
+
+        scope[name.lexeme] = False
+
+    def define(self, name):
+        if len(self.scopes) == 0:
+            return
+        self.scopes[-1][name.lexeme] = True
+
+    def resolve_local(self, expr, name):
+        for i in range(len(self.scopes) - 1, -1, -1):
+            if name.lexeme in self.scopes[i]:
+                self.interpreter.resolve(expr, len(self.scopes) - 1 - i)
+                return
+
+        # Not found. Assume it is global.
+
+    def report_error(self, token, message):
+        if token.type == TokenType.EOF:
+            print(f"[line {token.line}] Error at end: {message}", file=sys.stderr)
+        else:
+            print(
+                f"[line {token.line}] Error at '{token.lexeme}': {message}",
+                file=sys.stderr,
+            )
+        self.interpreter.had_runtime_error = True
+
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: ./your_program.sh <command> <filename>", file=sys.stderr)
@@ -1255,6 +1520,12 @@ def main():
             exit(65)
 
         interpreter = Interpreter()
+        resolver = Resolver(interpreter)
+        resolver.resolve(statements)
+
+        if interpreter.had_runtime_error:
+            exit(65)
+
         try:
             interpreter.interpret(statements)
         except RuntimeError as error:
