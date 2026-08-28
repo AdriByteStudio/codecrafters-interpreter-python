@@ -617,6 +617,154 @@ class AstPrinter:
         return builder
 
 
+class RuntimeError(Exception):
+    def __init__(self, token, message):
+        super().__init__(message)
+        self.token = token
+
+
+class Interpreter:
+    def __init__(self):
+        self.had_runtime_error = False
+
+    def interpret_expression(self, expression):
+        value = self.evaluate(expression)
+        return self.stringify(value)
+
+    def evaluate(self, expr):
+        return expr.accept(self)
+
+    def visit_literal_expr(self, expr):
+        return expr.value
+
+    def visit_grouping_expr(self, expr):
+        return self.evaluate(expr.expression)
+
+    def visit_unary_expr(self, expr):
+        right = self.evaluate(expr.right)
+
+        if expr.operator.type == TokenType.BANG:
+            return not self.is_truthy(right)
+        elif expr.operator.type == TokenType.MINUS:
+            self.check_number_operand(expr.operator, right)
+            return -right
+
+        return None
+
+    def visit_binary_expr(self, expr):
+        left = self.evaluate(expr.left)
+        right = self.evaluate(expr.right)
+
+        if expr.operator.type == TokenType.MINUS:
+            self.check_number_operands(expr.operator, left, right)
+            return left - right
+        elif expr.operator.type == TokenType.SLASH:
+            self.check_number_operands(expr.operator, left, right)
+            return left / right
+        elif expr.operator.type == TokenType.STAR:
+            self.check_number_operands(expr.operator, left, right)
+            return left * right
+        elif expr.operator.type == TokenType.PLUS:
+            if isinstance(left, float) and isinstance(right, float):
+                return left + right
+            if isinstance(left, str) and isinstance(right, str):
+                return left + right
+            raise RuntimeError(
+                expr.operator,
+                "Operands must be two numbers or two strings.",
+            )
+        elif expr.operator.type == TokenType.GREATER:
+            self.check_number_operands(expr.operator, left, right)
+            return left > right
+        elif expr.operator.type == TokenType.GREATER_EQUAL:
+            self.check_number_operands(expr.operator, left, right)
+            return left >= right
+        elif expr.operator.type == TokenType.LESS:
+            self.check_number_operands(expr.operator, left, right)
+            return left < right
+        elif expr.operator.type == TokenType.LESS_EQUAL:
+            self.check_number_operands(expr.operator, left, right)
+            return left <= right
+        elif expr.operator.type == TokenType.BANG_EQUAL:
+            return not self.is_equal(left, right)
+        elif expr.operator.type == TokenType.EQUAL_EQUAL:
+            return self.is_equal(left, right)
+
+        return None
+
+    def visit_variable_expr(self, expr):
+        raise RuntimeError(expr.name, f"Undefined variable '{expr.name.lexeme}'.")
+
+    def visit_assign_expr(self, expr):
+        raise RuntimeError(expr.name, "Invalid assignment target.")
+
+    def visit_logical_expr(self, expr):
+        left = self.evaluate(expr.left)
+
+        if expr.operator.type == TokenType.OR:
+            if self.is_truthy(left):
+                return left
+        else:
+            if not self.is_truthy(left):
+                return left
+
+        return self.evaluate(expr.right)
+
+    def visit_call_expr(self, expr):
+        raise RuntimeError(expr.paren, "Can only call functions and classes.")
+
+    def visit_get_expr(self, expr):
+        raise RuntimeError(expr.name, "Only instances have properties.")
+
+    def visit_set_expr(self, expr):
+        raise RuntimeError(expr.name, "Only instances have fields.")
+
+    def visit_this_expr(self, expr):
+        raise RuntimeError(expr.keyword, "Can't use 'this' outside of a class.")
+
+    def visit_super_expr(self, expr):
+        raise RuntimeError(expr.keyword, "Can't use 'super' outside of a class.")
+
+    def is_truthy(self, object):
+        if object is None:
+            return False
+        if isinstance(object, bool):
+            return object
+        return True
+
+    def is_equal(self, a, b):
+        if a is None and b is None:
+            return True
+        if a is None:
+            return False
+        return a == b
+
+    def check_number_operand(self, operator, operand):
+        if isinstance(operand, float):
+            return
+        raise RuntimeError(operator, "Operand must be a number.")
+
+    def check_number_operands(self, operator, left, right):
+        if isinstance(left, float) and isinstance(right, float):
+            return
+        raise RuntimeError(operator, "Operands must be numbers.")
+
+    def stringify(self, object):
+        if object is None:
+            return "nil"
+
+        if isinstance(object, float):
+            text = str(object)
+            if text.endswith(".0"):
+                text = text[:-2]
+            return text
+
+        if isinstance(object, bool):
+            return "true" if object else "false"
+
+        return str(object)
+
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: ./your_program.sh <command> <filename>", file=sys.stderr)
@@ -645,6 +793,23 @@ def main():
 
         printer = AstPrinter()
         print(printer.print(expression))
+    elif command == "evaluate":
+        parser = Parser(tokens)
+        expression = parser.parse_expression()
+
+        if scanner.had_error or parser.had_error:
+            exit(65)
+
+        interpreter = Interpreter()
+        try:
+            print(interpreter.interpret_expression(expression))
+        except RuntimeError as error:
+            print(str(error), file=sys.stderr)
+            print(f"[line {error.token.line}]", file=sys.stderr)
+            interpreter.had_runtime_error = True
+
+        if interpreter.had_runtime_error:
+            exit(70)
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         exit(1)
