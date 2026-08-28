@@ -343,6 +343,92 @@ class Super(Expr):
         return visitor.visit_super_expr(self)
 
 
+# Statement AST nodes
+class Stmt:
+    pass
+
+
+class ExpressionStmt(Stmt):
+    def __init__(self, expression):
+        self.expression = expression
+
+    def accept(self, visitor):
+        return visitor.visit_expression_stmt(self)
+
+
+class PrintStmt(Stmt):
+    def __init__(self, expression):
+        self.expression = expression
+
+    def accept(self, visitor):
+        return visitor.visit_print_stmt(self)
+
+
+class VarStmt(Stmt):
+    def __init__(self, name, initializer):
+        self.name = name
+        self.initializer = initializer
+
+    def accept(self, visitor):
+        return visitor.visit_var_stmt(self)
+
+
+class BlockStmt(Stmt):
+    def __init__(self, statements):
+        self.statements = statements
+
+    def accept(self, visitor):
+        return visitor.visit_block_stmt(self)
+
+
+class IfStmt(Stmt):
+    def __init__(self, condition, then_branch, else_branch):
+        self.condition = condition
+        self.then_branch = then_branch
+        self.else_branch = else_branch
+
+    def accept(self, visitor):
+        return visitor.visit_if_stmt(self)
+
+
+class WhileStmt(Stmt):
+    def __init__(self, condition, body):
+        self.condition = condition
+        self.body = body
+
+    def accept(self, visitor):
+        return visitor.visit_while_stmt(self)
+
+
+class FunctionStmt(Stmt):
+    def __init__(self, name, params, body):
+        self.name = name
+        self.params = params
+        self.body = body
+
+    def accept(self, visitor):
+        return visitor.visit_function_stmt(self)
+
+
+class ReturnStmt(Stmt):
+    def __init__(self, keyword, value):
+        self.keyword = keyword
+        self.value = value
+
+    def accept(self, visitor):
+        return visitor.visit_return_stmt(self)
+
+
+class ClassStmt(Stmt):
+    def __init__(self, name, superclass, methods):
+        self.name = name
+        self.superclass = superclass
+        self.methods = methods
+
+    def accept(self, visitor):
+        return visitor.visit_class_stmt(self)
+
+
 class ParseError(Exception):
     pass
 
@@ -358,6 +444,192 @@ class Parser:
             return self.expression()
         except ParseError:
             return None
+
+    def parse(self):
+        statements = []
+        while not self.is_at_end():
+            stmt = self.declaration()
+            if stmt is not None:
+                statements.append(stmt)
+        return statements
+
+    def declaration(self):
+        try:
+            if self.match(TokenType.CLASS):
+                return self.class_declaration()
+            if self.match(TokenType.FUN):
+                return self.function("function")
+            if self.match(TokenType.VAR):
+                return self.var_declaration()
+            return self.statement()
+        except ParseError:
+            self.synchronize()
+            return None
+
+    def statement(self):
+        if self.match(TokenType.PRINT):
+            return self.print_statement()
+        if self.match(TokenType.IF):
+            return self.if_statement()
+        if self.match(TokenType.WHILE):
+            return self.while_statement()
+        if self.match(TokenType.FOR):
+            return self.for_statement()
+        if self.match(TokenType.RETURN):
+            return self.return_statement()
+        if self.match(TokenType.LEFT_BRACE):
+            return BlockStmt(self.block())
+        return self.expression_statement()
+
+    def print_statement(self):
+        value = self.expression()
+        self.consume(TokenType.SEMICOLON, "Expect ';' after value.")
+        return PrintStmt(value)
+
+    def expression_statement(self):
+        expr = self.expression()
+        self.consume(TokenType.SEMICOLON, "Expect ';' after expression.")
+        return ExpressionStmt(expr)
+
+    def var_declaration(self):
+        name = self.consume(TokenType.IDENTIFIER, "Expect variable name.")
+
+        initializer = None
+        if self.match(TokenType.EQUAL):
+            initializer = self.expression()
+
+        self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.")
+        return VarStmt(name, initializer)
+
+    def if_statement(self):
+        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'.")
+        condition = self.expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition.")
+
+        then_branch = self.statement()
+        else_branch = None
+        if self.match(TokenType.ELSE):
+            else_branch = self.statement()
+
+        return IfStmt(condition, then_branch, else_branch)
+
+    def while_statement(self):
+        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'.")
+        condition = self.expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition.")
+        body = self.statement()
+
+        return WhileStmt(condition, body)
+
+    def for_statement(self):
+        self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'.")
+
+        initializer = None
+        if self.match(TokenType.SEMICOLON):
+            initializer = None
+        elif self.match(TokenType.VAR):
+            initializer = self.var_declaration()
+        else:
+            initializer = self.expression_statement()
+
+        condition = None
+        if not self.check(TokenType.SEMICOLON):
+            condition = self.expression()
+        self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition.")
+
+        increment = None
+        if not self.check(TokenType.RIGHT_PAREN):
+            increment = self.expression()
+        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after for clauses.")
+
+        body = self.statement()
+
+        if increment is not None:
+            body = BlockStmt([body, ExpressionStmt(increment)])
+
+        if condition is None:
+            condition = Literal(True)
+        body = WhileStmt(condition, body)
+
+        if initializer is not None:
+            body = BlockStmt([initializer, body])
+
+        return body
+
+    def return_statement(self):
+        keyword = self.previous()
+        value = None
+        if not self.check(TokenType.SEMICOLON):
+            value = self.expression()
+
+        self.consume(TokenType.SEMICOLON, "Expect ';' after return value.")
+        return ReturnStmt(keyword, value)
+
+    def function(self, kind):
+        name = self.consume(TokenType.IDENTIFIER, f"Expect {kind} name.")
+        self.consume(TokenType.LEFT_PAREN, f"Expect '(' after {kind} name.")
+        parameters = []
+        if not self.check(TokenType.RIGHT_PAREN):
+            while True:
+                parameters.append(
+                    self.consume(TokenType.IDENTIFIER, "Expect parameter name.")
+                )
+                if not self.match(TokenType.COMMA):
+                    break
+        self.consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters.")
+
+        self.consume(TokenType.LEFT_BRACE, f"Expect '{{' before {kind} body.")
+        body = self.block()
+        return FunctionStmt(name, parameters, body)
+
+    def class_declaration(self):
+        name = self.consume(TokenType.IDENTIFIER, "Expect class name.")
+
+        superclass = None
+        if self.match(TokenType.LESS):
+            self.consume(TokenType.IDENTIFIER, "Expect superclass name.")
+            superclass = Variable(self.previous())
+
+        self.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.")
+
+        methods = []
+        while not self.check(TokenType.RIGHT_BRACE) and not self.is_at_end():
+            methods.append(self.function("method"))
+
+        self.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.")
+
+        return ClassStmt(name, superclass, methods)
+
+    def block(self):
+        statements = []
+        while not self.check(TokenType.RIGHT_BRACE) and not self.is_at_end():
+            stmt = self.declaration()
+            if stmt is not None:
+                statements.append(stmt)
+
+        self.consume(TokenType.RIGHT_BRACE, "Expect '}' after block.")
+        return statements
+
+    def synchronize(self):
+        self.advance()
+
+        while not self.is_at_end():
+            if self.previous().type == TokenType.SEMICOLON:
+                return
+
+            if self.peek().type in (
+                TokenType.CLASS,
+                TokenType.FUN,
+                TokenType.VAR,
+                TokenType.FOR,
+                TokenType.IF,
+                TokenType.WHILE,
+                TokenType.PRINT,
+                TokenType.RETURN,
+            ):
+                return
+
+            self.advance()
 
     def expression(self):
         return self.assignment()
@@ -627,9 +899,46 @@ class Interpreter:
     def __init__(self):
         self.had_runtime_error = False
 
+    def interpret(self, statements):
+        for statement in statements:
+            self.execute(statement)
+
     def interpret_expression(self, expression):
         value = self.evaluate(expression)
         return self.stringify(value)
+
+    def execute(self, stmt):
+        stmt.accept(self)
+
+    def visit_expression_stmt(self, stmt):
+        self.evaluate(stmt.expression)
+        return None
+
+    def visit_print_stmt(self, stmt):
+        value = self.evaluate(stmt.expression)
+        print(self.stringify(value))
+        return None
+
+    def visit_var_stmt(self, stmt):
+        raise RuntimeError(stmt.name, "Variable declarations not supported yet.")
+
+    def visit_block_stmt(self, stmt):
+        raise RuntimeError(None, "Blocks not supported yet.")
+
+    def visit_if_stmt(self, stmt):
+        raise RuntimeError(None, "If statements not supported yet.")
+
+    def visit_while_stmt(self, stmt):
+        raise RuntimeError(None, "While statements not supported yet.")
+
+    def visit_function_stmt(self, stmt):
+        raise RuntimeError(stmt.name, "Functions not supported yet.")
+
+    def visit_return_stmt(self, stmt):
+        raise RuntimeError(stmt.keyword, "Return statements not supported yet.")
+
+    def visit_class_stmt(self, stmt):
+        raise RuntimeError(stmt.name, "Classes not supported yet.")
 
     def evaluate(self, expr):
         return expr.accept(self)
@@ -803,6 +1112,23 @@ def main():
         interpreter = Interpreter()
         try:
             print(interpreter.interpret_expression(expression))
+        except RuntimeError as error:
+            print(str(error), file=sys.stderr)
+            print(f"[line {error.token.line}]", file=sys.stderr)
+            interpreter.had_runtime_error = True
+
+        if interpreter.had_runtime_error:
+            exit(70)
+    elif command == "run":
+        parser = Parser(tokens)
+        statements = parser.parse()
+
+        if scanner.had_error or parser.had_error:
+            exit(65)
+
+        interpreter = Interpreter()
+        try:
+            interpreter.interpret(statements)
         except RuntimeError as error:
             print(str(error), file=sys.stderr)
             print(f"[line {error.token.line}]", file=sys.stderr)
