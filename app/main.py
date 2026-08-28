@@ -607,7 +607,7 @@ class Parser:
             if stmt is not None:
                 statements.append(stmt)
 
-        self.consume(TokenType.RIGHT_BRACE, "Expect '}' after block.")
+        self.consume(TokenType.RIGHT_BRACE, "Expect '}' .")
         return statements
 
     def synchronize(self):
@@ -959,7 +959,18 @@ class Interpreter:
         return None
 
     def visit_block_stmt(self, stmt):
-        raise RuntimeError(None, "Blocks not supported yet.")
+        self.execute_block(stmt.statements, Environment(self.environment))
+        return None
+
+    def execute_block(self, statements, environment):
+        previous = self.environment
+        try:
+            self.environment = environment
+
+            for statement in statements:
+                self.execute(statement)
+        finally:
+            self.environment = previous
 
     def visit_if_stmt(self, stmt):
         raise RuntimeError(None, "If statements not supported yet.")
