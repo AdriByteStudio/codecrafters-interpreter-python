@@ -1,4 +1,5 @@
 import sys
+import time
 
 
 class TokenType:
@@ -924,9 +925,29 @@ class Environment:
         raise RuntimeError(name, f"Undefined variable '{name.lexeme}'.")
 
 
+class LoxCallable:
+    def arity(self):
+        raise NotImplementedError
+
+    def call(self, interpreter, args):
+        raise NotImplementedError
+
+
+class Clock(LoxCallable):
+    def arity(self):
+        return 0
+
+    def call(self, interpreter, args):
+        return time.time()
+
+    def __str__(self):
+        return "<native fn>"
+
+
 class Interpreter:
     def __init__(self):
         self.globals = Environment()
+        self.globals.define("clock", Clock())
         self.environment = self.globals
         self.had_runtime_error = False
 
@@ -1075,7 +1096,23 @@ class Interpreter:
         return self.evaluate(expr.right)
 
     def visit_call_expr(self, expr):
-        raise RuntimeError(expr.paren, "Can only call functions and classes.")
+        callee = self.evaluate(expr.callee)
+
+        args = []
+        for arg in expr.args:
+            args.append(self.evaluate(arg))
+
+        if not isinstance(callee, LoxCallable):
+            raise RuntimeError(expr.paren, "Can only call functions and classes.")
+
+        fn = callee
+        if len(args) != fn.arity():
+            raise RuntimeError(
+                expr.paren,
+                f"Expected {fn.arity()} arguments but got {len(args)}.",
+            )
+
+        return fn.call(self, args)
 
     def visit_get_expr(self, expr):
         raise RuntimeError(expr.name, "Only instances have properties.")
