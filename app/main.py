@@ -980,7 +980,9 @@ class Interpreter:
         return None
 
     def visit_while_stmt(self, stmt):
-        raise RuntimeError(None, "While statements not supported yet.")
+        while self.is_truthy(self.evaluate(stmt.condition)):
+            self.execute(stmt.body)
+        return None
 
     def visit_function_stmt(self, stmt):
         raise RuntimeError(stmt.name, "Functions not supported yet.")
