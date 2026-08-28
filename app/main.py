@@ -944,6 +944,36 @@ class Clock(LoxCallable):
         return "<native fn>"
 
 
+class Return(Exception):
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+
+class LoxFunction(LoxCallable):
+    def __init__(self, declaration, closure):
+        self.declaration = declaration
+        self.closure = closure
+
+    def arity(self):
+        return len(self.declaration.params)
+
+    def call(self, interpreter, args):
+        environment = Environment(self.closure)
+        for i in range(len(self.declaration.params)):
+            environment.define(self.declaration.params[i].lexeme, args[i])
+
+        try:
+            interpreter.execute_block(self.declaration.body, environment)
+        except Return as return_value:
+            return return_value.value
+
+        return None
+
+    def __str__(self):
+        return f"<fn {self.declaration.name.lexeme}>"
+
+
 class Interpreter:
     def __init__(self):
         self.globals = Environment()
@@ -1006,10 +1036,16 @@ class Interpreter:
         return None
 
     def visit_function_stmt(self, stmt):
-        raise RuntimeError(stmt.name, "Functions not supported yet.")
+        fn = LoxFunction(stmt, self.environment)
+        self.environment.define(stmt.name.lexeme, fn)
+        return None
 
     def visit_return_stmt(self, stmt):
-        raise RuntimeError(stmt.keyword, "Return statements not supported yet.")
+        value = None
+        if stmt.value is not None:
+            value = self.evaluate(stmt.value)
+
+        raise Return(value)
 
     def visit_class_stmt(self, stmt):
         raise RuntimeError(stmt.name, "Classes not supported yet.")
