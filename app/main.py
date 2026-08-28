@@ -43,6 +43,13 @@ def main():
                 continue
             else:
                 print("EQUAL = null")
+        elif character == "!":
+            if i + 1 < len(file_contents) and file_contents[i + 1] == "=":
+                print("BANG_EQUAL != null")
+                i += 2
+                continue
+            else:
+                print("BANG ! null")
         elif character not in " \r\t\n":
             print(
                 f"[line 1] Error: Unexpected character: {character}",
