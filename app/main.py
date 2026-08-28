@@ -91,6 +91,26 @@ def main():
                 lexeme = file_contents[start : i + 1]
                 literal = file_contents[start + 1 : i]
                 print(f"STRING {lexeme} {literal}")
+        elif character.isdigit():
+            start = i
+            while i < len(file_contents) and file_contents[i].isdigit():
+                i += 1
+
+            # Look for a fractional part.
+            if (
+                i + 1 < len(file_contents)
+                and file_contents[i] == "."
+                and file_contents[i + 1].isdigit()
+            ):
+                # Consume the ".".
+                i += 1
+                while i < len(file_contents) and file_contents[i].isdigit():
+                    i += 1
+
+            lexeme = file_contents[start:i]
+            literal = str(float(lexeme))
+            print(f"NUMBER {lexeme} {literal}")
+            continue
         elif character == "\n":
             line += 1
         elif character not in " \r\t":
