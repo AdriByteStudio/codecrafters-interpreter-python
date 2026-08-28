@@ -963,9 +963,10 @@ class Return(Exception):
 
 
 class LoxFunction(LoxCallable):
-    def __init__(self, declaration, closure):
+    def __init__(self, declaration, closure, is_initializer=False):
         self.declaration = declaration
         self.closure = closure
+        self.is_initializer = is_initializer
 
     def arity(self):
         return len(self.declaration.params)
@@ -978,12 +979,75 @@ class LoxFunction(LoxCallable):
         try:
             interpreter.execute_block(self.declaration.body, environment)
         except Return as return_value:
+            if self.is_initializer:
+                return self.closure.get_at(0, "this")
             return return_value.value
 
+        if self.is_initializer:
+            return self.closure.get_at(0, "this")
         return None
+
+    def bind(self, instance):
+        environment = Environment(self.closure)
+        environment.define("this", instance)
+        return LoxFunction(self.declaration, environment, self.is_initializer)
 
     def __str__(self):
         return f"<fn {self.declaration.name.lexeme}>"
+
+
+class LoxClass(LoxCallable):
+    def __init__(self, name, superclass, methods):
+        self.name = name
+        self.superclass = superclass
+        self.methods = methods
+
+    def find_method(self, name):
+        if name in self.methods:
+            return self.methods[name]
+
+        if self.superclass is not None:
+            return self.superclass.find_method(name)
+
+        return None
+
+    def arity(self):
+        initializer = self.find_method("init")
+        if initializer is not None:
+            return initializer.arity()
+        return 0
+
+    def call(self, interpreter, args):
+        instance = LoxInstance(self)
+        initializer = self.find_method("init")
+        if initializer is not None:
+            initializer.bind(instance).call(interpreter, args)
+        return instance
+
+    def __str__(self):
+        return self.name
+
+
+class LoxInstance:
+    def __init__(self, klass):
+        self.klass = klass
+        self.fields = {}
+
+    def get(self, name):
+        if name.lexeme in self.fields:
+            return self.fields[name.lexeme]
+
+        method = self.klass.find_method(name.lexeme)
+        if method is not None:
+            return method.bind(self)
+
+        raise RuntimeError(name, f"Undefined property '{name.lexeme}'.")
+
+    def set(self, name, value):
+        self.fields[name.lexeme] = value
+
+    def __str__(self):
+        return f"{self.klass.name} instance"
 
 
 class Interpreter:
@@ -1071,7 +1135,36 @@ class Interpreter:
         raise Return(value)
 
     def visit_class_stmt(self, stmt):
-        raise RuntimeError(stmt.name, "Classes not supported yet.")
+        superclass = None
+        if stmt.superclass is not None:
+            superclass = self.evaluate(stmt.superclass)
+            if not isinstance(superclass, LoxClass):
+                raise RuntimeError(
+                    stmt.superclass.name, "Superclass must be a class."
+                )
+
+        self.environment.define(stmt.name.lexeme, None)
+
+        if stmt.superclass is not None:
+            self.environment = Environment(self.environment)
+            self.environment.define("super", superclass)
+
+        methods = {}
+        for method in stmt.methods:
+            fn = LoxFunction(
+                method,
+                self.environment,
+                method.name.lexeme == "init",
+            )
+            methods[method.name.lexeme] = fn
+
+        klass = LoxClass(stmt.name.lexeme, superclass, methods)
+
+        if superclass is not None:
+            self.environment = self.environment.enclosing
+
+        self.environment.assign(stmt.name, klass)
+        return None
 
     def evaluate(self, expr):
         return expr.accept(self)
@@ -1180,16 +1273,38 @@ class Interpreter:
         return fn.call(self, args)
 
     def visit_get_expr(self, expr):
+        object = self.evaluate(expr.object)
+        if isinstance(object, LoxInstance):
+            return object.get(expr.name)
+
         raise RuntimeError(expr.name, "Only instances have properties.")
 
     def visit_set_expr(self, expr):
-        raise RuntimeError(expr.name, "Only instances have fields.")
+        object = self.evaluate(expr.object)
+
+        if not isinstance(object, LoxInstance):
+            raise RuntimeError(expr.name, "Only instances have fields.")
+
+        value = self.evaluate(expr.value)
+        object.set(expr.name, value)
+        return value
 
     def visit_this_expr(self, expr):
-        raise RuntimeError(expr.keyword, "Can't use 'this' outside of a class.")
+        return self.look_up_variable(expr.keyword, expr)
 
     def visit_super_expr(self, expr):
-        raise RuntimeError(expr.keyword, "Can't use 'super' outside of a class.")
+        distance = self.locals.get(expr)
+        superclass = self.environment.get_at(distance, "super")
+
+        object = self.environment.get_at(distance - 1, "this")
+
+        method = superclass.find_method(expr.method.lexeme)
+        if method is None:
+            raise RuntimeError(
+                expr.method, f"Undefined property '{expr.method.lexeme}'."
+            )
+
+        return method.bind(object)
 
     def is_truthy(self, object):
         if object is None:
