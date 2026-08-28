@@ -30,6 +30,7 @@ def main():
     }
     had_errors = False
     i = 0
+    line = 1
 
     while i < len(file_contents):
         character = file_contents[i]
@@ -72,9 +73,11 @@ def main():
                 continue
             else:
                 print("SLASH / null")
-        elif character not in " \r\t\n":
+        elif character == "\n":
+            line += 1
+        elif character not in " \r\t":
             print(
-                f"[line 1] Error: Unexpected character: {character}",
+                f"[line {line}] Error: Unexpected character: {character}",
                 file=sys.stderr,
             )
             had_errors = True
