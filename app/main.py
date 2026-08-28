@@ -895,8 +895,39 @@ class RuntimeError(Exception):
         self.token = token
 
 
+class Environment:
+    def __init__(self, enclosing=None):
+        self.values = {}
+        self.enclosing = enclosing
+
+    def define(self, name, value):
+        self.values[name] = value
+
+    def get(self, name):
+        if name.lexeme in self.values:
+            return self.values[name.lexeme]
+
+        if self.enclosing is not None:
+            return self.enclosing.get(name)
+
+        raise RuntimeError(name, f"Undefined variable '{name.lexeme}'.")
+
+    def assign(self, name, value):
+        if name.lexeme in self.values:
+            self.values[name.lexeme] = value
+            return
+
+        if self.enclosing is not None:
+            self.enclosing.assign(name, value)
+            return
+
+        raise RuntimeError(name, f"Undefined variable '{name.lexeme}'.")
+
+
 class Interpreter:
     def __init__(self):
+        self.globals = Environment()
+        self.environment = self.globals
         self.had_runtime_error = False
 
     def interpret(self, statements):
@@ -920,7 +951,12 @@ class Interpreter:
         return None
 
     def visit_var_stmt(self, stmt):
-        raise RuntimeError(stmt.name, "Variable declarations not supported yet.")
+        value = None
+        if stmt.initializer is not None:
+            value = self.evaluate(stmt.initializer)
+
+        self.environment.define(stmt.name.lexeme, value)
+        return None
 
     def visit_block_stmt(self, stmt):
         raise RuntimeError(None, "Blocks not supported yet.")
@@ -1002,10 +1038,12 @@ class Interpreter:
         return None
 
     def visit_variable_expr(self, expr):
-        raise RuntimeError(expr.name, f"Undefined variable '{expr.name.lexeme}'.")
+        return self.environment.get(expr.name)
 
     def visit_assign_expr(self, expr):
-        raise RuntimeError(expr.name, "Invalid assignment target.")
+        value = self.evaluate(expr.value)
+        self.environment.assign(expr.name, value)
+        return value
 
     def visit_logical_expr(self, expr):
         left = self.evaluate(expr.left)
