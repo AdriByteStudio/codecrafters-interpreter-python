@@ -73,6 +73,24 @@ def main():
                 continue
             else:
                 print("SLASH / null")
+        elif character == '"':
+            start = i
+            i += 1
+            while i < len(file_contents) and file_contents[i] != '"':
+                if file_contents[i] == "\n":
+                    line += 1
+                i += 1
+
+            if i >= len(file_contents):
+                print(
+                    f"[line {line}] Error: Unterminated string.",
+                    file=sys.stderr,
+                )
+                had_errors = True
+            else:
+                lexeme = file_contents[start : i + 1]
+                literal = file_contents[start + 1 : i]
+                print(f"STRING {lexeme} {literal}")
         elif character == "\n":
             line += 1
         elif character not in " \r\t":
