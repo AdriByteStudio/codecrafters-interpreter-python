@@ -64,6 +64,14 @@ def main():
                 continue
             else:
                 print("GREATER > null")
+        elif character == "/":
+            if i + 1 < len(file_contents) and file_contents[i + 1] == "/":
+                # A comment goes until the end of the line.
+                while i < len(file_contents) and file_contents[i] != "\n":
+                    i += 1
+                continue
+            else:
+                print("SLASH / null")
         elif character not in " \r\t\n":
             print(
                 f"[line 1] Error: Unexpected character: {character}",
