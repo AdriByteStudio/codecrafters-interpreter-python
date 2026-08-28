@@ -28,6 +28,24 @@ def main():
         "{": "LEFT_BRACE",
         "}": "RIGHT_BRACE",
     }
+    keywords = {
+        "and": "AND",
+        "class": "CLASS",
+        "else": "ELSE",
+        "false": "FALSE",
+        "for": "FOR",
+        "fun": "FUN",
+        "if": "IF",
+        "nil": "NIL",
+        "or": "OR",
+        "print": "PRINT",
+        "return": "RETURN",
+        "super": "SUPER",
+        "this": "THIS",
+        "true": "TRUE",
+        "var": "VAR",
+        "while": "WHILE",
+    }
     had_errors = False
     i = 0
     line = 1
@@ -110,6 +128,17 @@ def main():
             lexeme = file_contents[start:i]
             literal = str(float(lexeme))
             print(f"NUMBER {lexeme} {literal}")
+            continue
+        elif character.isalpha() or character == "_":
+            start = i
+            while i < len(file_contents) and (
+                file_contents[i].isalnum() or file_contents[i] == "_"
+            ):
+                i += 1
+
+            lexeme = file_contents[start:i]
+            token_type = keywords.get(lexeme, "IDENTIFIER")
+            print(f"{token_type} {lexeme} null")
             continue
         elif character == "\n":
             line += 1
